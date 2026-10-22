@@ -64,57 +64,59 @@ class Camara:
             (self.screen_height / 2)
             / math.tan(math.radians(self.fov_y) / 2)
         )
-        
+
+        # Matriz de vista 3x3 precalculada: sus filas son derecha, arriba y frente.
+        # Así un solo producto V @ relativo da (x_cam, y_cam, profundidad)
+        # en lugar de tres productos punto separados.
+        self.vista = np.vstack([self.derecha, self.arriba_camara, self.frente])
+        self.posicion_col = self.posicion.reshape(3, 1)
+
     def proyectar(self, punto):
         # relativo -> saber si el objeto está atrás de cámara o en el área visual
         # vector que apunta directo desde cam -> punto/obj. Pos punto respecto a cámara
         relativo = restar(punto, self.posicion)
-        
+
         # Con respecto a cámara, en un espacio 2D (pixel) donde cae
         x_cam = producto_punto(relativo, self.derecha)
         y_cam = producto_punto(relativo, self.arriba_camara)
         profundidad = producto_punto(relativo, self.frente)
-        
+
         # No proyectar puntos fuera de profundidad válida
         if profundidad <= self.znear or profundidad > self.zfar:
             return None
-        
+
         # Convertir al sistema de pixeles
         # Hace la proyección FINAL, con el (0,0) como centro de la pantalla, +y abajo
         x_pantalla = (
             self.screen_width / 2
             + x_cam * self.focal / profundidad
-        )  
+        )
         y_pantalla = (
             self.screen_height / 2
             - y_cam * self.focal / profundidad
-        )  
-        
+        )
+
         return (x_pantalla, y_pantalla)
-    
+
     """
         Misma matemática que proyectar(), pero para muchos puntos a la vez (que corra más rápido)
         puntos: arreglo 3 x N (columnas = puntos)
-        Devuelve (xs, yx, validos): arreglos de largo N; validos[i] es False si el punto i está detrás de la cámara o fuera de perspectiva.
+        Devuelve (xs, ys, validos, profundidad): arreglos de largo N.
+          validos[i] es False si el punto i está detrás de la cámara o fuera de perspectiva.
+          profundidad[i] se usa para ordenar caras (algoritmo del pintor).
         Sirve para no llamar a proyectar() muchas veces por frame
-    """    
+    """
     def proyectar_lote(self, puntos):
-        # relativo -> saber si el objeto está atrás de cámara o en el área visual
-        relativo = puntos - self.posicion.reshape(3, 1)
-        
-        # Con respecto a cámara, en un espacio 2D (pixel) donde cae
-        x_cam = self.derecha @ relativo
-        y_cam = self.arriba_camara @ relativo
-        profundidad = self.frente @ relativo
-        
+        # Un solo producto matricial: filas = x_cam, y_cam, profundidad
+        x_cam, y_cam, profundidad = self.vista @ (puntos - self.posicion_col)
+
         # validos -> es False si el punto i está detrás de la cámara o fuera de perspectiva.
         validos = (profundidad > self.znear) & (profundidad <= self.zfar)
-        
+
         # Evitar dividir entre cero en los puntos inválidos
-        profundidad_segura = np.where(validos, profundidad, 1.0)
-        
-        xs = self.screen_width / 2 + x_cam * self.focal / profundidad_segura
-        ys = self.screen_height / 2 - y_cam * self.focal / profundidad_segura
- 
-        return xs, ys, validos
-        
+        escala = self.focal / np.where(validos, profundidad, 1.0)
+
+        xs = self.screen_width / 2 + x_cam * escala
+        ys = self.screen_height / 2 - y_cam * escala
+
+        return xs, ys, validos, profundidad
