@@ -1,10 +1,18 @@
 """
     Agente OVNI.
-    Modelado:
-      Superficie de revolución con el perfil:
-      casco inferior curvo -> borde (filo) del disco -> cubierta superior que
-      sube suavemente -> collar -> cúpula semiesférica con meridianos
-      que convergen en el polo. Cada franja tiene su color de relleno.
+    Modelado (dos mallas):
+      1. Cuerpo: un ELIPSOIDE completo dado por la ecuación
+
+             x²/9 + y²/9 + z²/1 = 1      (semiejes a = 3, b = 3, c = 1)
+
+         En la ecuación el eje delgado es z (convención matemática: z hacia
+         arriba). En este motor el eje vertical es Y, así que al pasarla al
+         motor se intercambian y <-> z: el semieje delgado (1) queda vertical
+         y el elipsoide queda acostado, como platillo.
+      2. Parte de arriba, según FORMA_ARRIBA:
+         - "esfera": semiesfera   x² + y² + z² = r²   sentada sobre el cuerpo.
+         - "cubo":   un cubo sentado sobre el cuerpo.
+      Cada franja tiene su color de relleno.
       Rayo de luz: pirámide translúcida de la panza del ovni al suelo
       (se prende y apaga con alternar_luz()).
     Movimiento:
@@ -22,11 +30,13 @@ from Malla import Malla
 from OpMat import OpMat3D
 
 # Colores de relleno por zona
-CASCO = (85, 90, 110)
-FILO = (60, 62, 78)
-CUBIERTA = (150, 155, 175)
-COLLAR = (55, 55, 70)
+CASCO = (85, 90, 110)        # mitad de abajo del cuerpo
+FILO = (60, 62, 78)          # franjas del ecuador (el borde del platillo)
+CUBIERTA = (150, 155, 175)   # mitad de arriba del cuerpo
 CUPULA = (90, 200, 230)
+CUBO_CLARO = (150, 230, 250)
+CUBO_MEDIO = (60, 160, 200)
+CUBO_OSCURO = (40, 110, 150)
 
 # Rayo de luz: colores con alfa (r, g, b, transparencia 0-255)
 LUZ_LADOS = (255, 245, 150, 55)
@@ -34,22 +44,39 @@ LUZ_BASE = (255, 245, 150, 95)    # cuadro de luz en el suelo, más intenso
 
 
 class Ovni:
-    # Medidas del modelo (en unidades de modelo, antes de escalar)
-    RADIO = 5.0          # radio del disco
-    PROFUNDIDAD = 1.35   # qué tan hondo es el casco inferior
-    RADIO_COLLAR = 2.5   # donde termina el disco y empieza la cúpula
-    ALTO_CUBIERTA = 0.5  # altura de la cubierta en el collar
-    RADIO_CUPULA = 2.3
-    ALTO_CUPULA = 1.9
+    # --- Cuerpo: semiejes de la ecuación x²/A² + y²/B² + z²/C² = 1 ---
+    A = 3.0     # semieje en x  (A² = 9)
+    B = 3.0     # semieje en y  (B² = 9)
+    C = 1.0     # semieje en z  (C² = 1), el delgado -> vertical en el motor
+    N_CUERPO = 16          # franjas del cuerpo (de polo a polo)
 
-    N_CASCO = 11
-    N_CUBIERTA = 7
-    N_CUPULA = 10
+    # --- Parte de arriba: "esfera" o "cubo" ---
+    FORMA_ARRIBA = "esfera"
+    RADIO_ESFERA = 1.3     # r de la ecuación x² + y² + z² = r²
+    N_ESFERA = 10          # franjas de la semiesfera
+    LADO_CUBO = 1.6
 
-    def __init__(self, color, posicion=(0.0, 6.0, 0.0), escala=0.6,
+    def __init__(self, color, posicion=(0.0, 6.0, 0.0), escala=1.0,
                  limite=8.0, segmentos=32):
-        self.malla = Malla.revolucion(self._perfil(), segmentos, color,
-                                      self._colores_franjas())
+        # 1. Cuerpo. Malla.elipsoide recibe los semiejes en el orden del
+        #    motor (x, y vertical, z):  x <- A,  y (vertical) <- C,  z <- B.
+        mitad = self.N_CUERPO // 2
+        colores_cuerpo = ([CASCO] * (mitad - 1) + [FILO]          # abajo
+                          + [FILO] + [CUBIERTA] * (mitad - 1))     # arriba
+        cuerpo = Malla.elipsoide(
+            self.A, self.C, self.B, color,
+            relleno=colores_cuerpo,
+            segmentos=segmentos, anillos=self.N_CUERPO,
+            lat_min=-90.0, lat_max=90.0
+        )
+
+        # 2. Parte de arriba
+        if self.FORMA_ARRIBA == "cubo":
+            arriba = self._cubo(color)
+        else:
+            arriba = self._semiesfera(color, segmentos)
+
+        self.mallas = [cuerpo, arriba]
 
         # Rayo de luz: pirámide translúcida sin bordes (color de borde None).
         # Sin culling: al ser translúcida, también se ven sus caras de atrás.
@@ -74,41 +101,40 @@ class Ovni:
     # ------------------------------------------------------------------
     # Modelado
     # ------------------------------------------------------------------
-    def _perfil(self):
-        """Lista de (radio, y) de abajo (centro del casco) hasta el polo de la cúpula."""
-        R = self.RADIO
-        perfil = []
+    def _altura_superficie(self, r):
+        """
+        Altura del cuerpo a una distancia r del eje vertical. De la ecuación
+        del cuerpo (en el motor):  (r/A)² + (y/C)² = 1  ->  y = C·sqrt(1 - (r/A)²)
+        """
+        return self.C * math.sqrt(1.0 - (r / self.A) ** 2)
 
-        # 1. Casco inferior: cuarto de elipse, del centro de abajo hasta el borde
-        for k in range(self.N_CASCO + 1):
-            t = (math.pi / 2) * k / self.N_CASCO
-            perfil.append((R * math.sin(t), -self.PROFUNDIDAD * math.cos(t)))
+    def _semiesfera(self, color, segmentos):
+        """
+        Semiesfera x² + y² + z² = r² (latitud de 0° a 90°).
+        Su base, un círculo de radio r, se apoya justo donde el cuerpo
+        tiene ese mismo radio.
+        """
+        r = self.RADIO_ESFERA
+        return Malla.esfera(
+            r, color, relleno=CUPULA,
+            segmentos=segmentos, anillos=self.N_ESFERA,
+            lat_min=0.0, lat_max=90.0,
+            centro=(0.0, self._altura_superficie(r), 0.0)
+        )
 
-        # 2. Cubierta superior: del borde hacia el collar, subiendo suave
-        ancho = R - self.RADIO_COLLAR
-        for k in range(1, self.N_CUBIERTA + 1):
-            r = R - ancho * k / self.N_CUBIERTA
-            u = (r - self.RADIO_COLLAR) / ancho          # 1 en el borde, 0 en el collar
-            perfil.append((r, self.ALTO_CUBIERTA * (1 - u * u)))
-
-        # 3. Collar: un pequeño escalón entre el disco y la cúpula
-        perfil.append((self.RADIO_CUPULA, self.ALTO_CUBIERTA + 0.12))
-
-        # 4. Cúpula semiesférica (el último punto es el polo, radio 0)
-        y0 = self.ALTO_CUBIERTA + 0.12
-        for k in range(1, self.N_CUPULA + 1):
-            a = (math.pi / 2) * k / self.N_CUPULA
-            perfil.append((self.RADIO_CUPULA * math.cos(a),
-                           y0 + self.ALTO_CUPULA * math.sin(a)))
-
-        return perfil
-
-    def _colores_franjas(self):
-        """Un color por franja (entre niveles consecutivos del perfil)."""
-        return ([CASCO] * (self.N_CASCO - 1) + [FILO]   # casco, la última franja es el filo
-                + [CUBIERTA] * self.N_CUBIERTA
-                + [COLLAR]
-                + [CUPULA] * self.N_CUPULA)
+    def _cubo(self, color):
+        """
+        Cubo centrado en el eje vertical. Su base se pone a la altura en la
+        que sus esquinas (a distancia mitad·√2 del eje) tocan el cuerpo,
+        para que no flote ni se hunda de más.
+        """
+        mitad = self.LADO_CUBO / 2
+        y0 = self._altura_superficie(mitad * math.sqrt(2))
+        # Un tono por cara (orden de Malla.caja: abajo, arriba, z0, z1, x0, x1)
+        # para que se note el volumen y el giro.
+        tonos = [CUBO_OSCURO, CUBO_CLARO, CUPULA, CUBO_MEDIO, CUBO_MEDIO, CUPULA]
+        return Malla.caja(-mitad, mitad, y0, y0 + self.LADO_CUBO, -mitad, mitad,
+                          color, tonos)
 
     # ------------------------------------------------------------------
     # Movimiento
@@ -164,13 +190,14 @@ class Ovni:
         )
         opMat.push()
         opMat.multiplicar(matriz_ovni)
-        self.malla.recolectar_caras(camara, opMat, caras)
+        for malla in self.mallas:
+            malla.recolectar_caras(camara, opMat, caras)
         opMat.pop()
 
         if self.luz_encendida:
             # Punta del rayo = punto más bajo del casco, ya transformado
             # (así sigue pegada al casco aunque el ovni se incline).
-            px, py, pz, _ = matriz_ovni @ (0.0, -self.PROFUNDIDAD, 0.0, 1.0)
+            px, py, pz, _ = matriz_ovni @ (0.0, -self.C, 0.0, 1.0)   # polo de abajo del cuerpo
 
             # La pirámide unitaria va de y=0 (punta) a y=-1 (base):
             # escalar sy = py hace que la base quede justo en el suelo (y = 0).

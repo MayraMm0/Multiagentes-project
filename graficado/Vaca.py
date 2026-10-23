@@ -1,4 +1,19 @@
-
+"""
+    Agente VACA.
+    Modelado:
+      Cuerpo, cabeza, hocico, cuernos, cola, ubre y 4 patas, todo con cajas
+      rellenas. La vaca mira hacia +X en coordenadas de modelo.
+    Posición:
+      Aparece en un punto aleatorio del campo, con una orientación aleatoria.
+    Movimiento:
+      Se traslada hacia arriba mientras rota sobre el eje Y. Al llegar a
+      ALTURA_MAX vuelve al suelo y empieza otra vez. También mueve la cola
+      (ejemplo de push/pop).
+    Matrices (colapsadas con OpMat3D.matriz_trs):
+      T(x, y + subida, z) · Ry(rumbo + giro) · S se calcula cada frame en una
+      sola fórmula. No necesita pivote: el eje Y del modelo ya pasa por el
+      centro de la vaca.
+"""
 import math
 import random
 
@@ -16,6 +31,10 @@ class Vaca:
     # Punto donde la cola se une al cuerpo (pivote de su giro)
     PIVOTE_COLA = (-1.1, 1.75, 0.0)
 
+    VEL_SUBIDA = 1.0       # unidades por segundo
+    VEL_GIRO = 120.0       # grados por segundo (sobre el eje Y)
+    ALTURA_MAX = 4.0       # al subir esto, regresa al suelo
+
     def __init__(self, color, posicion=None, limite=8.0, escala=1.0):
         self.escala = escala
         self.limite = limite
@@ -32,12 +51,10 @@ class Vaca:
         # Orientación aleatoria: giro sobre el eje Y, en grados.
         self.rumbo = random.uniform(0, 360)
 
-        # Matriz colapsada T · Ry · S, precalculada una sola vez
-        self.matriz_base = OpMat3D.matriz_trs(
-            self.x, self.y, self.z,
-            ry=self.rumbo,
-            sx=escala, sy=escala, sz=escala
-        )
+        # Subida y giro actuales (cada vaca empieza en un punto distinto
+        # de la animación para que no vayan sincronizadas)
+        self.subida = random.uniform(0, self.ALTURA_MAX)
+        self.giro = 0.0
 
         # Animación de la cola (cada vaca con su propio desfase)
         self.tiempo = random.uniform(0, 10)
@@ -71,12 +88,27 @@ class Vaca:
     def update(self, dt):
         self.tiempo += dt
 
+        # Trasladar hacia arriba y rotar sobre Y
+        self.subida += self.VEL_SUBIDA * dt
+        self.giro = (self.giro + self.VEL_GIRO * dt) % 360.0
+
+        # Al llegar arriba, vuelve al suelo
+        if self.subida >= self.ALTURA_MAX:
+            self.subida = 0.0
+
     # ------------------------------------------------------------------
     # Dibujo (recolecta caras; main.py las ordena y dibuja)
     # ------------------------------------------------------------------
     def render(self, camara, opMat, caras):
+        # T(x, y + subida, z) · Ry(rumbo + giro) · S, en una sola fórmula
+        matriz = OpMat3D.matriz_trs(
+            self.x, self.y + self.subida, self.z,
+            ry=self.rumbo + self.giro,
+            sx=self.escala, sy=self.escala, sz=self.escala
+        )
+
         opMat.push()                          # guarda la matriz de la escena
-        opMat.multiplicar(self.matriz_base)   # colocar la vaca (precalculada)
+        opMat.multiplicar(matriz)             # colocar la vaca
 
         for parte in self.partes:
             parte.recolectar_caras(camara, opMat, caras)

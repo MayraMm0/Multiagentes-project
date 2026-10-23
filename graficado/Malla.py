@@ -145,34 +145,22 @@ class Malla:
         ]
         return Malla(puntos, aristas, color, caras, relleno)
 
-    # Base del ovni
+    # ------------------------------------------------------------------
+    # Superficies hechas de anillos (revolución y elipsoide)
+    # ------------------------------------------------------------------
     @staticmethod
-    def revolucion(perfil, segmentos, color, relleno=None):
+    def _desde_anillos(puntos, niveles, segmentos, color, relleno):
         """
-        Superficie de revolución se obtiene girando una curva 2D alrededor del eje Y.
-        perfil: lista de (radio, y) de abajo hacia arriba.
-        Un punto con radio ~0 es un polo (un solo vértice).
+        Une anillos de vértices ya calculados en una malla.
+        niveles: lista (de abajo hacia arriba) con los índices de cada anillo;
+                 un nivel con un solo índice es un polo.
         Aristas: un anillo por cada nivel + un meridiano entre niveles.
         Caras: un cuadrilátero por segmento entre dos niveles
                (triángulo si uno de los niveles es un polo).
         relleno: un color, o una lista con un color por FRANJA
-                 (len(perfil) - 1 colores, de abajo hacia arriba).
+                 (len(niveles) - 1 colores, de abajo hacia arriba).
         """
-        puntos = []
         aristas = []
-        niveles = []   # índices de los vértices de cada nivel
-
-        for radio, y in perfil:
-            if radio < 1e-9:
-                puntos.append([0.0, y, 0.0])
-                niveles.append([len(puntos) - 1])
-            else:
-                indices = []
-                for k in range(segmentos):
-                    ang = 2 * math.pi * k / segmentos
-                    puntos.append([radio * math.cos(ang), y, radio * math.sin(ang)])
-                    indices.append(len(puntos) - 1)
-                niveles.append(indices) # niveles[n] = índices de los vértices del anillo n
 
         # Anillos horizontales
         for indices in niveles:
@@ -207,6 +195,119 @@ class Malla:
                 rellenos.append(color_franja)
 
         return Malla(puntos, aristas, color, caras, rellenos)
+
+    @staticmethod
+    def revolucion(perfil, segmentos, color, relleno=None):
+        """
+        Superficie de revolución: se gira una curva 2D alrededor del eje Y.
+        perfil: lista de (radio, y) de abajo hacia arriba.
+        Un punto con radio ~0 es un polo (un solo vértice).
+        """
+        puntos = []
+        niveles = []   # índices de los vértices de cada nivel
+
+        for radio, y in perfil:
+            if radio < 1e-9:
+                puntos.append([0.0, y, 0.0])
+                niveles.append([len(puntos) - 1])
+            else:
+                indices = []
+                for k in range(segmentos):
+                    ang = 2 * math.pi * k / segmentos
+                    puntos.append([radio * math.cos(ang), y, radio * math.sin(ang)])
+                    indices.append(len(puntos) - 1)
+                niveles.append(indices) # niveles[n] = índices de los vértices del anillo n
+
+        return Malla._desde_anillos(puntos, niveles, segmentos, color, relleno)
+
+    @staticmethod
+    def elipsoide(a, b, c, color, relleno=None, segmentos=32, anillos=12,
+                  lat_min=-90.0, lat_max=90.0, centro=(0.0, 0.0, 0.0)):
+        """
+        Elipsoide con semiejes a (en X), b (en Y) y c (en Z):
+
+            Ecuación implícita:   (x/a)² + (y/b)² + (z/c)² = 1
+
+            Ecuación paramétrica (latitud φ, longitud θ):
+                x = a · cos(φ) · cos(θ)
+                y = b · sin(φ)
+                z = c · cos(φ) · sin(θ)
+            con φ en [-90°, 90°] y θ en [0°, 360°).
+
+        Comprobación: (x/a)² + (z/c)² = cos²φ (cos²θ + sin²θ) = cos²φ
+                      y (y/b)² = sin²φ, así que la suma es cos²φ + sin²φ = 1.
+
+        Cada valor de φ da un anillo (una elipse horizontal) y cada θ un
+        meridiano. Con lat_min / lat_max se obtiene solo una parte:
+        lat_min=-90, lat_max=0 -> mitad de abajo; 0 a 90 -> mitad de arriba.
+        φ = ±90° es un polo (un solo vértice).
+        anillos: número de franjas entre lat_min y lat_max.
+        """
+        cx, cy, cz = centro
+        puntos = []
+        niveles = []
+
+        for i in range(anillos + 1):
+            phi = math.radians(lat_min + (lat_max - lat_min) * i / anillos)
+            y = cy + b * math.sin(phi)
+
+            if abs(math.cos(phi)) < 1e-9:                 # polo
+                puntos.append([cx, y, cz])
+                niveles.append([len(puntos) - 1])
+                continue
+
+            indices = []
+            for k in range(segmentos):
+                theta = 2 * math.pi * k / segmentos
+                puntos.append([cx + a * math.cos(phi) * math.cos(theta),
+                               y,
+                               cz + c * math.cos(phi) * math.sin(theta)])
+                indices.append(len(puntos) - 1)
+            niveles.append(indices)
+
+        return Malla._desde_anillos(puntos, niveles, segmentos, color, relleno)
+
+    @staticmethod
+    def esfera(r, color, relleno=None, segmentos=32, anillos=12,
+               lat_min=-90.0, lat_max=90.0, centro=(0.0, 0.0, 0.0)):
+        """
+        Esfera de radio r:
+
+            Ecuación implícita:   x² + y² + z² = r²
+
+            Ecuación paramétrica (latitud φ, longitud θ):
+                x = r · cos(φ) · cos(θ)
+                y = r · sin(φ)
+                z = r · cos(φ) · sin(θ)
+
+        Comprobación: x² + z² = r² cos²φ (cos²θ + sin²θ) = r² cos²φ
+                      y² = r² sin²φ, así que la suma es r² (cos²φ + sin²φ) = r².
+        (Es el elipsoide con los tres semiejes iguales: a = b = c = r.)
+        Con lat_min=0, lat_max=90 se obtiene la semiesfera de arriba.
+        """
+        cx, cy, cz = centro
+        puntos = []
+        niveles = []
+
+        for i in range(anillos + 1):
+            phi = math.radians(lat_min + (lat_max - lat_min) * i / anillos)
+            y = cy + r * math.sin(phi)
+
+            if abs(math.cos(phi)) < 1e-9:                 # polo
+                puntos.append([cx, y, cz])
+                niveles.append([len(puntos) - 1])
+                continue
+
+            indices = []
+            for k in range(segmentos):
+                theta = 2 * math.pi * k / segmentos
+                puntos.append([cx + r * math.cos(phi) * math.cos(theta),
+                               y,
+                               cz + r * math.cos(phi) * math.sin(theta)])
+                indices.append(len(puntos) - 1)
+            niveles.append(indices)
+
+        return Malla._desde_anillos(puntos, niveles, segmentos, color, relleno)
 
     # Líneas del suelo
     @staticmethod
