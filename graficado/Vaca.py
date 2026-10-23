@@ -1,15 +1,4 @@
-"""
-    Agente VACA.
-    Modelado:
-      Cuerpo, cabeza, hocico, cuernos, cola, ubre y 4 patas, todo con cajas
-      rellenas. La vaca mira hacia +X en coordenadas de modelo.
-    Posición:
-      Aparece en un punto aleatorio del campo, con una orientación aleatoria.
-      No camina, pero mueve la cola (ejemplo de push/pop).
-    Optimización:
-      Como la vaca no se mueve, su matriz T · Ry · S se calcula UNA sola vez
-      en __init__ y en cada frame solo se aplica con opMat.multiplicar().
-"""
+
 import math
 import random
 

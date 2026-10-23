@@ -8,13 +8,12 @@ from Ovni import Ovni
 from Vaca import Vaca
 from Bresenham import rellenar_poligono, rellenar_poligono_alpha, dibujar_segmento_2d
 
-# Configuración de la ventana
 ANCHO, ALTO = 900, 600
 FPS = 60
 
 FONDO = (13, 10, 45)
-COLOR_OVNI = (30, 30, 45)  # bordes del ovni
-COLOR_VACA = (60, 45, 60)  # bordes de las vacas
+COLOR_OVNI = (30, 30, 45)
+COLOR_VACA = (60, 45, 60)
 COLOR_SUELO = (45, 40, 110)
 
 LIMITE = 8.0  # el campo va de -LIMITE a +LIMITE en X y Z
