@@ -13,21 +13,21 @@ ANCHO, ALTO = 900, 600
 FPS = 60
 
 FONDO = (13, 10, 45)
-COLOR_OVNI = (30, 30, 45)       # bordes del ovni
-COLOR_VACA = (60, 45, 60)       # bordes de las vacas
+COLOR_OVNI = (30, 30, 45)       # Color de los bordes del ovni
+COLOR_VACA = (60, 45, 60)       # Color de los bordes de las vacas
 COLOR_SUELO = (45, 40, 110)
 
-LIMITE = 8.0  # el campo va de -LIMITE a +LIMITE en X y Z
+LIMITE = 8.0  # Límites del campo en X y Z
 
 
 def dibujar_caras(superficie, caras):
-    """Ordena y dibuja las caras de la escena con el algoritmo del pintor."""
+    # Ordena las caras según su profundidad
     caras.sort(key=lambda cara: cara[0], reverse=True)
 
     superficie.lock()
     for _, puntos, relleno, borde in caras:
         if len(relleno) == 4:
-            # Las caras con alfa necesitan que la superficie esté desbloqueada.
+            # Desbloquea la superficie para dibujar con transparencia
             superficie.unlock()
             rellenar_poligono_alpha(superficie, puntos, relleno)
             superficie.lock()
@@ -50,7 +50,7 @@ def main():
     pygame.display.set_caption("Ovni y vaca - modelado 3D con Bresenham")
     reloj = pygame.time.Clock()
 
-    # Cámara principal
+    # Configuración de la cámara
     camara = Camara(
         screen_width=ANCHO,
         screen_height=ALTO,
@@ -80,9 +80,9 @@ def main():
             elif evento.type == pygame.KEYDOWN and evento.key == pygame.K_ESCAPE:
                 ejecutando = False
             elif evento.type == pygame.KEYDOWN and evento.key == pygame.K_l:
-                ovni.alternar_luz()  # L: prender / apagar el rayo
+                ovni.alternar_luz()  # L: activar o desactivar el rayo
 
-        # Actualizar agentes
+        # Actualiza el movimiento de los objetos
         ovni.update(delta_time)
         for vaca in vacas:
             vaca.update(delta_time)
@@ -90,10 +90,10 @@ def main():
         pantalla.fill(FONDO)
         opMat.loadId()
 
-        # El suelo se dibuja primero
+        # Dibuja primero el suelo
         suelo.render(pantalla, camara, opMat)
 
-        # Recolectar las caras de todos los objetos para ordenarlas juntas
+        # Reúne las caras para dibujarlas según su profundidad
         caras = []
         for vaca in vacas:
             vaca.render(camara, opMat, caras)

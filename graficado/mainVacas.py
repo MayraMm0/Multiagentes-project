@@ -1,8 +1,3 @@
-"""
-    Escena de prueba: solo las VACAS.
-    Tres vacas en puntos fijos que suben mientras rotan sobre el eje Y.
-    Reutiliza la cámara y el algoritmo del pintor de main.py.
-"""
 import pygame
 
 from OpMat import OpMat3D
@@ -10,7 +5,7 @@ from Malla import Malla
 from Vaca import Vaca
 from main import Camara, dibujar_caras, ANCHO, ALTO, FPS, FONDO, COLOR_VACA, COLOR_SUELO
 
-# Vacas en puntos fijos (x, y, z)
+# Posiciones iniciales de las vacas (x, y, z)
 POSICIONES = [(-4.0, 0.0, 0.0), (0.0, 0.0, 2.5), (4.0, 0.0, -1.0)]
 
 
@@ -21,7 +16,7 @@ def main():
     pygame.display.set_caption("Vacas")
     reloj = pygame.time.Clock()
 
-    # Cámara más cerca y más baja que en la escena completa
+    # Configuración de la cámara
     camara = Camara(
         screen_width=ANCHO,
         screen_height=ALTO,
@@ -43,14 +38,13 @@ def main():
             elif evento.type == pygame.KEYDOWN and evento.key == pygame.K_ESCAPE:
                 ejecutando = False
 
-        # --- 1. Actualizar ---
+        # Actualiza el movimiento de las vacas
         for vaca in vacas:
             vaca.update(delta_time)
 
-        # --- 2. Fondo ---
         pantalla.fill(FONDO)
 
-        # --- 3. Renderizar ---
+        # Dibuja el suelo y las vacas
         opMat.loadId()
         suelo.render(pantalla, camara, opMat)
 
@@ -61,7 +55,6 @@ def main():
 
         pygame.display.set_caption(f"Vacas  |  {reloj.get_fps():.0f} FPS")
 
-        # --- 4. Mostrar frame ---
         pygame.display.flip()
 
     pygame.quit()

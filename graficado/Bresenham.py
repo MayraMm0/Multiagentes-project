@@ -1,9 +1,8 @@
 import pygame
 
 
-# Para coordenadas 2D de puntos entre dos segmentos
+# Calcula los puntos que forman una línea entre dos coordenadas
 def bresenham_2d(inicio, fin):
-    """Genera todos los píxeles entre dos posiciones de pantalla."""
     x, y = inicio
     x1, y1 = fin
 
@@ -15,9 +14,7 @@ def bresenham_2d(inicio, fin):
     error = dx - dy
 
     while True:
-        # yield: pausa la ejecución de la función, para que la función invocante pueda usarlos,
-        # y después sigue la ejecución (Pausas para ir ploteando y calculando coordenadas)
-        # por qué? la función padre plotea los puntos, bresenham 2D calcula sus coordenadas
+        # Entrega cada punto para que se pueda dibujar en pantalla
         yield x, y
 
         if (x, y) == (x1, y1):
@@ -34,51 +31,36 @@ def bresenham_2d(inicio, fin):
             y += sy
 
 
-"""
-    superficie: buffer de dibujado (pantalla)
-    inicio, fin: coordenadas 2D, de la línea que queremos
-    Cada vez que tenemos coordenadas (de bresenham_2d) verifica que no se salgan de pantalla
-    Si no se salen dibuja el pixel (cambia color)
-"""
-
-
+# Dibuja una línea conectando dos puntos en pantalla
 def dibujar_segmento_2d(superficie, inicio, fin, color):
     screen_width, screen_height = superficie.get_size()
 
-    # Los extremos deben ser coordenadas enteras de pantalla
+    # Convierte las coordenadas a números enteros
     inicio = (round(inicio[0]), round(inicio[1]))
     fin = (round(fin[0]), round(fin[1]))
 
-    # Cuando ya se proyectaron 2 voxeles -> pixeles, los conecta con bresenham_2d
+    # Dibuja los puntos que estén dentro de la pantalla
     for x, y in bresenham_2d(inicio, fin):
         if 0 <= x < screen_width and 0 <= y < screen_height:
             superficie.set_at((x, y), color)
 
 
-"""
-    Relleno por scanline de un polígono CONVEXO (3 o más vértices).
-    1. Bresenham recorre cada orilla y, por cada fila y, guarda el x más
-       a la izquierda y el más a la derecha.
-    2. Cada fila se pinta de x_min a x_max con pygame.draw.line (por velocidad).
-"""
-
-
+# Rellena un polígono convexo usando el método scanline
 def rellenar_poligono(superficie, puntos, color, revisar_tamano=True):
     screen_width, screen_height = superficie.get_size()
 
     ys = [p[1] for p in puntos]
     y_min, y_max = max(0, min(ys)), min(screen_height - 1, max(ys))
     if y_min > y_max:
-        return  # el polígono está completamente arriba o abajo de la pantalla
+        return  # El polígono queda fuera de la pantalla
 
-    # Protección: polígonos enormes (vértices casi en el plano cercano)
-    # harían que Bresenham recorra millones de píxeles fuera de pantalla.
+    # Evita recorrer polígonos demasiado grandes
     xs = [p[0] for p in puntos]
     if revisar_tamano and (max(xs) - min(xs) > 8 * screen_width
                            or max(ys) - min(ys) > 8 * screen_height):
         return
 
-    orillas = {}  # y -> [x_min, x_max]
+    orillas = {}  # Guarda los límites de cada fila
     n = len(puntos)
     for i in range(n):
         for x, y in bresenham_2d(puntos[i], puntos[(i + 1) % n]):
@@ -99,16 +81,7 @@ def rellenar_poligono(superficie, puntos, color, revisar_tamano=True):
                          (max(0, x0), y), (min(ultimo_x, x1), y))
 
 
-"""
-    Relleno TRANSLÚCIDO: color = (r, g, b, alpha).
-    1. Se crea una capa con canal alfa (SRCALPHA) del tamaño del recuadro
-       que ocupa el polígono en pantalla (recortado a la pantalla).
-    2. Se rellena el polígono en esa capa con el mismo scanline.
-    3. blit mezcla la capa con lo que ya estaba dibujado.
-    Ojo: blit no funciona con la superficie bloqueada (lock).
-"""
-
-
+# Rellena un polígono aplicando transparencia
 def rellenar_poligono_alpha(superficie, puntos, color):
     screen_width, screen_height = superficie.get_size()
 
@@ -120,8 +93,9 @@ def rellenar_poligono_alpha(superficie, puntos, color):
     x0, x1 = max(0, min(xs)), min(screen_width - 1, max(xs))
     y0, y1 = max(0, min(ys)), min(screen_height - 1, max(ys))
     if x0 > x1 or y0 > y1:
-        return  # fuera de pantalla
+        return  # El polígono queda fuera de la pantalla
 
+    # Crea una capa para dibujar el polígono con transparencia
     capa = pygame.Surface((x1 - x0 + 1, y1 - y0 + 1), pygame.SRCALPHA)
     desplazados = [(x - x0, y - y0) for x, y in puntos]
     rellenar_poligono(capa, desplazados, color, revisar_tamano=False)
