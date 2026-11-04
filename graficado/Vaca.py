@@ -15,19 +15,17 @@ class Vaca:
     # Punto donde la cola se une al cuerpo (pivote de su giro)
     PIVOTE_COLA = (-1.1, 1.75, 0.0)
 
-    # Fase 1: quieta
-    TIEMPO_QUIETA = 2.0    # segundos en el suelo
-    # Fase 2: subiendo
+    ALTO_LOMO = 1.85       # altura del lomo: ahí se para la vaca de arriba en la pila
+
+    # Subiendo
     VEL_SUBIDA = 1.0       # unidades por segundo
     VEL_GIRO = 120.0       # grados por segundo (sobre el eje Y)
     ALTURA_MAX = 4.0       # hasta dónde sube
-    # Fase 3: bajando
+    # Bajando
     VEL_BAJADA = 1.5       # unidades por segundo
 
     ESCALA_MIN = 0.4
     VEL_CAMINAR = 3.0
-
-    ALTO_LOMO = 1.85
 
     def __init__(self, color, posicion=None, limite=8.0, escala=1.0):
         self.escala = escala
@@ -49,7 +47,7 @@ class Vaca:
         self.tiempo = random.uniform(0, 10)
         self.vel_cola = random.uniform(3.0, 5.0)
 
-        # Empieza quieta; cada vaca con un tiempo distinto para no ir sincronizadas
+        # Empieza quieta en el suelo
         self.subida = 0.0          # cuánto está sobre el suelo
         self.giro = 0.0            # grados extra sobre Y mientras sube
         self.quieta()
@@ -80,12 +78,6 @@ class Vaca:
         t = self.subida / self.ALTURA_MAX  # 0 en el suelo, 1 arriba
         return self.escala * (1 - t) + self.escala * self.ESCALA_MIN * t
 
-    def cambiar_piso(self, nuevo_y):
-        """Cambia sobre qué está parada, sin moverla en el mundo."""
-        altura = self.y + self.subida  # dónde está ahora
-        self.y = nuevo_y
-        self.subida = altura - nuevo_y  # lo que le falta por bajar hasta su nuevo piso
-
     # Cambios de fase
     def quieta(self):
         """Detiene a la vaca donde esté. Su matriz se calcula una sola vez aquí."""
@@ -101,7 +93,10 @@ class Vaca:
 
 
     def subir(self):
+        if self.estado == 'subiendo' or self.subida >= self.ALTURA_MAX:
+            return                      # ya va subiendo, o ya está arriba
         self.estado = 'subiendo'
+        self.rumbo = (self.rumbo + self.giro) % 360.0
         self.giro = 0.0
 
     def bajar(self):
@@ -113,6 +108,12 @@ class Vaca:
         self.rumbo = (self.rumbo + self.giro) % 360.0
         self.giro = 0.0
 
+    def cambiar_piso(self, nuevo_y):
+        """Cambia sobre qué está parada, sin moverla en el mundo."""
+        altura = self.y + self.subida       # dónde está ahora
+        self.y = nuevo_y
+        self.subida = altura - nuevo_y      # lo que le falta por bajar hasta su nuevo piso
+
     def mover(self, dx, dz):
         self.x += dx
         self.z += dz
@@ -120,9 +121,7 @@ class Vaca:
             self.quieta()
 
 
-
-
-            # Movimiento
+    # Movimiento
     def update(self, dt):
         self.tiempo += dt
 

@@ -1,28 +1,3 @@
-"""
-    Agente OVNI.
-    Modelado (dos mallas):
-      1. Cuerpo: un ELIPSOIDE completo dado por la ecuación
-
-             x²/9 + y²/9 + z²/1 = 1      (semiejes a = 3, b = 3, c = 1)
-
-         En la ecuación el eje delgado es z (convención matemática: z hacia
-         arriba). En este motor el eje vertical es Y, así que al pasarla al
-         motor se intercambian y <-> z: el semieje delgado (1) queda vertical
-         y el elipsoide queda acostado, como platillo.
-      2. Parte de arriba, según FORMA_ARRIBA:
-         - "esfera": semiesfera   x² + y² + z² = r²   sentada sobre el cuerpo.
-         - "cubo":   un cubo sentado sobre el cuerpo.
-      Cada franja tiene su color de relleno.
-      Rayo de luz: pirámide translúcida de la panza del ovni al suelo
-      (se prende y apaga con alternar_luz()).
-    Movimiento:
-      - Patrulla entre puntos de paso aleatorios sobre el campo.
-      - Flota (sube y baja) y gira sobre su eje.
-      - Se inclina un poco hacia donde avanza.
-    Optimización:
-      T · Rz · Rx · Ry · S se calcula con una sola fórmula cerrada
-      (OpMat3D.matriz_trs) en vez de 5 multiplicaciones de matrices 4x4.
-"""
 import math
 import random
 
@@ -34,6 +9,8 @@ CASCO = (85, 90, 110)        # mitad de abajo del cuerpo
 FILO = (60, 62, 78)          # franjas del ecuador (el borde del platillo)
 CUBIERTA = (150, 155, 175)   # mitad de arriba del cuerpo
 CUPULA = (90, 200, 230)
+ALIEN_VERDE = (100, 235, 140)
+ALIEN_NEGRO = (15, 15, 20)
 CUBO_CLARO = (150, 230, 250)
 CUBO_MEDIO = (60, 160, 200)
 CUBO_OSCURO = (40, 110, 150)
@@ -53,7 +30,9 @@ class Ovni:
     # --- Parte de arriba: "esfera" o "cubo" ---
     FORMA_ARRIBA = "esfera"
     RADIO_ESFERA = 1.3     # r de la ecuación x² + y² + z² = r²
-    N_ESFERA = 10          # franjas de la semiesfera
+    N_ESFERA = 20          # franjas de la semiesfera (finas, para el dibujo)
+    SEGMENTOS_ESFERA = 64  # gajos de la semiesfera
+    THETA_ALIEN = 90.0     # lado donde va el dibujo (θ = 90° es +Z del modelo)
     LADO_CUBO = 1.6
 
     def __init__(self, color, posicion=(0.0, 6.0, 0.0), escala=1.0,
@@ -115,12 +94,73 @@ class Ovni:
         tiene ese mismo radio.
         """
         r = self.RADIO_ESFERA
-        return Malla.esfera(
-            r, color, relleno=CUPULA,
-            segmentos=segmentos, anillos=self.N_ESFERA,
+        y_centro = self._altura_superficie(r)
+        semiesfera = Malla.esfera(
+            r, None, relleno=CUPULA,       # sin bordes: no tapan el dibujo
+            segmentos=self.SEGMENTOS_ESFERA, anillos=self.N_ESFERA,
             lat_min=0.0, lat_max=90.0,
-            centro=(0.0, self._altura_superficie(r), 0.0)
+            centro=(0.0, y_centro, 0.0)
         )
+        self._pintar_alien(semiesfera, y_centro, r)
+        return semiesfera
+
+    @staticmethod
+    def _color_alien(u, v):
+        """
+        El dibujo, en coordenadas del lado de la cúpula visto de frente:
+          u: horizontal, de -1 (izquierda) a 1 (derecha)
+          v: vertical, de 0 (base de la cúpula) a 1 (polo)
+        Devuelve el color de ese punto, o None si ahí no hay dibujo.
+        """
+        def elipse(cu, cv, ru, rv):
+            return ((u - cu) / ru) ** 2 + ((v - cv) / rv) ** 2 <= 1.0
+
+        # Ojos y boca (negro), encima de
+        if elipse(-0.16, 0.62, 0.11, 0.085) or elipse(0.16, 0.62, 0.11, 0.085):
+            return ALIEN_NEGRO
+        if 0.41 <= v <= 0.47 and -0.18 <= u <= 0.14:
+            return ALIEN_NEGRO
+
+        # Silueta: cabeza + cuello + cuerpo
+        def silueta(m):
+            return (elipse(0.0, 0.57, 0.33 + m, 0.30 + m)        # cabeza
+                    or (abs(u) <= 0.22 + m and v <= 0.36)         # cuello
+                    or elipse(0.0, 0.0, 0.52 + m, 0.33 + m))      # cuerpo
+
+        if silueta(0.0):
+            return ALIEN_VERDE
+        if silueta(0.07):               # contorno negro
+            return ALIEN_NEGRO
+        return None
+
+    def _pintar_alien(self, semiesfera, y_centro, r):
+        """
+        Colorea las caras de la semiesfera que caen dentro del dibujo.
+        Del centro de cada cara se recuperan sus coordenadas de la ecuación
+        paramétrica de la esfera:
+            θ = atan2(z, x)          φ = asin((y - y_centro) / r)
+        y el dibujo se proyecta de frente sobre el lado θ = THETA_ALIEN:
+            u = -cos(φ) · sin(θ - THETA_ALIEN)        v = sin(φ)
+        """
+        pts = semiesfera.points
+        for i, cara in enumerate(semiesfera.caras):
+            n = len(cara)
+            cx = sum(pts[0, j] for j in cara) / n
+            cy = sum(pts[1, j] for j in cara) / n
+            cz = sum(pts[2, j] for j in cara) / n
+
+            theta = math.atan2(cz, cx)
+            phi = math.asin(max(-1.0, min(1.0, (cy - y_centro) / r)))
+
+            dtheta = theta - math.radians(self.THETA_ALIEN)
+            if math.cos(dtheta) <= 0:          # el otro lado: sin dibujo
+                continue
+            u = -math.cos(phi) * math.sin(dtheta)
+            v = math.sin(phi)
+
+            color = self._color_alien(u, v)
+            if color is not None:
+                semiesfera.rellenos[i] = color
 
     def _cubo(self, color):
         """
@@ -139,6 +179,10 @@ class Ovni:
     # ------------------------------------------------------------------
     # Movimiento
     # ------------------------------------------------------------------
+    def altura_panza(self):
+        """Altura (en el mundo) del polo de abajo del cuerpo, sin contar el flote."""
+        return self.y_base - self.C * self.escala
+
     def alternar_luz(self):
         self.luz_encendida = not self.luz_encendida
 
@@ -175,33 +219,31 @@ class Ovni:
     # Dibujo (recolecta caras; main.py las ordena y dibuja)
     # ------------------------------------------------------------------
     def render(self, camara, opMat, caras):
-        flote = 0.35 * math.sin(self.tiempo * 2.0)
+        cuerpo, arriba = self.mallas
 
-        # Inclinación hacia donde avanza (mover en +x -> cabecea sobre z negativo)
-        inclina_z = -self.vx * 2.5
-        inclina_x = self.vz * 2.5
-
-        # Equivale a: translate -> rotate_z -> rotate_x -> rotate_y -> scale,
-        # pero en una sola matriz calculada con la fórmula cerrada.
-        matriz_ovni = OpMat3D.matriz_trs(
-            self.x, self.y_base + flote, self.z,
-            rx=inclina_x, ry=self.giro, rz=inclina_z,
-            sx=self.escala, sy=self.escala, sz=self.escala
-        )
+        # Cuerpo: sin flote ni inclinación, solo posición y escala -> T · S
         opMat.push()
-        opMat.multiplicar(matriz_ovni)
-        for malla in self.mallas:
-            malla.recolectar_caras(camara, opMat, caras)
-        opMat.pop()
+        opMat.multiplicar(OpMat3D.matriz_trs(
+            self.x, self.y_base, self.z,
+            sx=self.escala, sy=self.escala, sz=self.escala
+        ))
+        cuerpo.recolectar_caras(camara, opMat, caras)
+
+        # Parte de arriba: hereda la matriz del cuerpo y además gira sobre Y
+        opMat.push()
+        opMat.multiplicar(OpMat3D.matriz_trs(0.0, 0.0, 0.0, ry=self.giro))
+        arriba.recolectar_caras(camara, opMat, caras)
+        opMat.pop()                       # regresa a la matriz del cuerpo
+
+        opMat.pop()                       # regresa a la matriz de la escena
 
         if self.luz_encendida:
-            # Punta del rayo = punto más bajo del casco, ya transformado
-            # (así sigue pegada al casco aunque el ovni se incline).
-            px, py, pz, _ = matriz_ovni @ (0.0, -self.C, 0.0, 1.0)   # polo de abajo del cuerpo
+            # Punta del rayo = polo de abajo del cuerpo
+            px, py, pz = self.x, self.altura_panza(), self.z
 
             # La pirámide unitaria va de y=0 (punta) a y=-1 (base):
             # escalar sy = py hace que la base quede justo en el suelo (y = 0).
-            # Gira junto con el ovni, pero sin inclinarse.
+            # Gira sobre Y junto con la parte de arriba: T · Ry · S
             opMat.push()
             opMat.multiplicar(OpMat3D.matriz_trs(
                 px, py, pz,

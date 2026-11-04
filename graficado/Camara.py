@@ -1,12 +1,14 @@
 """
-    Este archivo debe:
-    - Definir posición de la cámara
-    - Calcular vectores de orientación
-    - Proyectar un punto 3D en perspectiva
-    - Devolver None si el punto está detrás
+    Cámara
+    - Define la posición de la cámara
+    - Calcula los vectores de orientación (como gluLookAt)
+    - Proyecta puntos 3D en perspectiva
+    - Marca como inválidos los puntos que quedan detrás
 """
-import numpy as np
 import math
+
+import numpy as np
+
 
 def restar(a,b):
     return np.array(a, dtype=float) - np.array(b, dtype=float)
@@ -16,13 +18,13 @@ def producto_punto(a,b):
 
 def producto_cruz(a,b):
     return np.cross(a, b)
-    
+
 def normalizar(v):
     magnitud = np.linalg.norm(v)
-    
+
     if magnitud == 0:
         raise ValueError("No se puede normalizar un vector de magnitud cero")
-    
+
     return v / magnitud
 
 class Camara:
@@ -36,15 +38,15 @@ class Camara:
     ):
         self.screen_width = screen_width
         self.screen_height = screen_height
-        
+
         self.posicion = np.array(posicion, dtype=float)
         self.objetivo = np.array(objetivo, dtype=float)
         self.arriba = np.array(arriba, dtype=float)
-        
+
         self.fov_y = 60.0
         self.znear = 1.0
         self.zfar = 500.0
-        
+
         # Sistema de coordenadas de la cámara (orientación), equivalente en intención a gluLookAt.
         self.frente = normalizar(
             restar(self.objetivo, self.posicion)
@@ -56,7 +58,7 @@ class Camara:
             self.derecha,
             self.frente
         )
-        
+
         # Distancia focal en píxeles
         # en universo 3D (Aplicar Perspectiva: cuánto "encoger" según distancia)
         # aplica distancia focal por semejanza de triángulos

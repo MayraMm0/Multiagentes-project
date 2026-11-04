@@ -2,13 +2,6 @@ import numpy as np
 
 
 class OpMat3D:
-    """
-    Matriz de modelado 4x4 con pila (push/pop).
-
-    Optimización: en lugar de construir una matriz 4x4 completa y hacer
-    M @ T (64 multiplicaciones), cada operación modifica SOLO las columnas
-    de M que cambian. El resultado es idéntico a multiplicar por la derecha.
-    """
 
     def __init__(self):
         # Matriz de modelado actual, inicializada como identidad
@@ -20,21 +13,17 @@ class OpMat3D:
     # Estado
     # ------------------------------------------------------------------
     def loadId(self):
-        """Restablece todas las transformaciones acumuladas."""
         self.matriz_modelado = np.identity(4)
 
     def push(self):
-        """Guarda una COPIA de la matriz actual (como glPushMatrix)."""
         self.pila.append(self.matriz_modelado.copy())
 
     def pop(self):
-        """Recupera la última matriz guardada (como glPopMatrix)."""
         if not self.pila:
             raise IndexError("pop() sin push(): la pila de matrices está vacía")
         self.matriz_modelado = self.pila.pop()
 
     def multiplicar(self, matriz):
-        """M = M @ matriz. Sirve para aplicar matrices ya precalculadas."""
         self.matriz_modelado = self.matriz_modelado @ matriz
 
     # ------------------------------------------------------------------
