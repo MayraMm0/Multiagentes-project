@@ -1,19 +1,3 @@
-"""
-    Agente VACA.
-    Modelado:
-      Cuerpo, cabeza, hocico, cuernos, cola, ubre y 4 patas, todo con cajas
-      rellenas. La vaca mira hacia +X en coordenadas de modelo.
-    Posición:
-      Aparece en un punto aleatorio del campo, con una orientación aleatoria.
-    Movimiento:
-      Se traslada hacia arriba mientras rota sobre el eje Y. Al llegar a
-      ALTURA_MAX vuelve al suelo y empieza otra vez. También mueve la cola
-      (ejemplo de push/pop).
-    Matrices (colapsadas con OpMat3D.matriz_trs):
-      T(x, y + subida, z) · Ry(rumbo + giro) · S se calcula cada frame en una
-      sola fórmula. No necesita pivote: el eje Y del modelo ya pasa por el
-      centro de la vaca.
-"""
 import math
 import random
 
@@ -31,9 +15,19 @@ class Vaca:
     # Punto donde la cola se une al cuerpo (pivote de su giro)
     PIVOTE_COLA = (-1.1, 1.75, 0.0)
 
+    # Fase 1: quieta
+    TIEMPO_QUIETA = 2.0    # segundos en el suelo
+    # Fase 2: subiendo
     VEL_SUBIDA = 1.0       # unidades por segundo
     VEL_GIRO = 120.0       # grados por segundo (sobre el eje Y)
-    ALTURA_MAX = 4.0       # al subir esto, regresa al suelo
+    ALTURA_MAX = 4.0       # hasta dónde sube
+    # Fase 3: bajando
+    VEL_BAJADA = 1.5       # unidades por segundo
+
+    ESCALA_MIN = 0.4
+    VEL_CAMINAR = 3.0
+
+    ALTO_LOMO = 1.85
 
     def __init__(self, color, posicion=None, limite=8.0, escala=1.0):
         self.escala = escala
@@ -51,14 +45,14 @@ class Vaca:
         # Orientación aleatoria: giro sobre el eje Y, en grados.
         self.rumbo = random.uniform(0, 360)
 
-        # Subida y giro actuales (cada vaca empieza en un punto distinto
-        # de la animación para que no vayan sincronizadas)
-        self.subida = random.uniform(0, self.ALTURA_MAX)
-        self.giro = 0.0
-
         # Animación de la cola (cada vaca con su propio desfase)
         self.tiempo = random.uniform(0, 10)
         self.vel_cola = random.uniform(3.0, 5.0)
+
+        # Empieza quieta; cada vaca con un tiempo distinto para no ir sincronizadas
+        self.subida = 0.0          # cuánto está sobre el suelo
+        self.giro = 0.0            # grados extra sobre Y mientras sube
+        self.quieta()
 
         # --- Modelo (color = bordes, último argumento = relleno) ------
         self.partes = [
@@ -82,33 +76,97 @@ class Vaca:
         # La cola va aparte porque tiene su propio movimiento
         self.cola = Malla.caja(-1.35, -1.1, 1.4, 1.75, -0.04, 0.04, color, GRIS)
 
-    # ------------------------------------------------------------------
-    # Movimiento
-    # ------------------------------------------------------------------
+    def _escala_actual(self):
+        t = self.subida / self.ALTURA_MAX  # 0 en el suelo, 1 arriba
+        return self.escala * (1 - t) + self.escala * self.ESCALA_MIN * t
+
+    def cambiar_piso(self, nuevo_y):
+        """Cambia sobre qué está parada, sin moverla en el mundo."""
+        altura = self.y + self.subida  # dónde está ahora
+        self.y = nuevo_y
+        self.subida = altura - nuevo_y  # lo que le falta por bajar hasta su nuevo piso
+
+    # Cambios de fase
+    def quieta(self):
+        """Detiene a la vaca donde esté. Su matriz se calcula una sola vez aquí."""
+        self.estado = 'quieta'
+        self.rumbo = (self.rumbo + self.giro) % 360.0  # conservar hacia dónde quedó viendo
+        self.giro = 0.0
+        self.matriz_quieta = OpMat3D.matriz_trs(
+            self.x, self.y + self.subida, self.z,  # ojo: + subida
+            ry=self.rumbo,
+            sx=self._escala_actual(), sy=self._escala_actual(), sz=self._escala_actual()
+
+        )
+
+
+    def subir(self):
+        self.estado = 'subiendo'
+        self.giro = 0.0
+
+    def bajar(self):
+        # Se queda con la orientación que tenía al terminar de subir,
+        # así no "salta" al cambiar de fase.
+        if self.subida <= 0.0:
+            return
+        self.estado = 'bajando'
+        self.rumbo = (self.rumbo + self.giro) % 360.0
+        self.giro = 0.0
+
+    def mover(self, dx, dz):
+        self.x += dx
+        self.z += dz
+        if self.estado == 'quieta':
+            self.quieta()
+
+
+
+
+            # Movimiento
     def update(self, dt):
         self.tiempo += dt
 
-        # Trasladar hacia arriba y rotar sobre Y
-        self.subida += self.VEL_SUBIDA * dt
-        self.giro = (self.giro + self.VEL_GIRO * dt) % 360.0
+        if self.estado == 'subiendo':
+            # Trasladar hacia arriba y rotar sobre Y
+            self.subida += self.VEL_SUBIDA * dt
+            self.giro = (self.giro + self.VEL_GIRO * dt) % 360.0
+            if self.subida >= self.ALTURA_MAX:
+                self.subida = self.ALTURA_MAX
+                self.quieta()
 
-        # Al llegar arriba, vuelve al suelo
-        if self.subida >= self.ALTURA_MAX:
-            self.subida = 0.0
+        elif self.estado == 'bajando':
+            # Descender sin girar
+            self.subida -= self.VEL_BAJADA * dt
+            if self.subida <= 0.0:
+                self.subida = 0.0
+                self.quieta()
 
-    # ------------------------------------------------------------------
-    # Dibujo (recolecta caras; main.py las ordena y dibuja)
-    # ------------------------------------------------------------------
-    def render(self, camara, opMat, caras):
-        # T(x, y + subida, z) · Ry(rumbo + giro) · S, en una sola fórmula
-        matriz = OpMat3D.matriz_trs(
+    def _matriz(self):
+        """La matriz colapsada de la fase actual."""
+
+        if self.estado == 'quieta':
+            return self.matriz_quieta          # precalculada al entrar a la fase
+
+        if self.estado == 'subiendo':
+            # T(x, y + subida, z) · Ry(rumbo + giro) · S
+            return OpMat3D.matriz_trs(
+                self.x, self.y + self.subida, self.z,
+                ry=self.rumbo + self.giro,
+                sx=self._escala_actual(), sy=self._escala_actual(), sz=self._escala_actual()
+            )
+
+        # 'bajando': T(x, y + subida, z) · Ry(rumbo) · S
+        return OpMat3D.matriz_trs(
             self.x, self.y + self.subida, self.z,
-            ry=self.rumbo + self.giro,
-            sx=self.escala, sy=self.escala, sz=self.escala
+            ry=self.rumbo,
+            sx=self._escala_actual(), sy=self._escala_actual(), sz=self._escala_actual()
         )
 
+
+    # Dibujo (recolecta caras; main.py las ordena y dibuja)
+    def render(self, camara, opMat, caras):
         opMat.push()                          # guarda la matriz de la escena
-        opMat.multiplicar(matriz)             # colocar la vaca
+        opMat.multiplicar(self._matriz())     # colocar la vaca según su fase
 
         for parte in self.partes:
             parte.recolectar_caras(camara, opMat, caras)
