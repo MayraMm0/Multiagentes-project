@@ -1,5 +1,14 @@
-import numpy as np
+"""
+    Cámara
+    - Define la posición de la cámara
+    - Calcula los vectores de orientación (como gluLookAt)
+    - Proyecta puntos 3D en perspectiva
+    - Marca como inválidos los puntos que quedan detrás
+"""
 import math
+
+import numpy as np
+
 
 def restar(a,b):
     return np.array(a, dtype=float) - np.array(b, dtype=float)
@@ -38,7 +47,7 @@ class Camara:
         self.znear = 1.0
         self.zfar = 500.0
 
-        # Calcula la orientación de la cámara
+        # Sistema de coordenadas de la cámara (orientación), equivalente en intención a gluLookAt.
         self.frente = normalizar(
             restar(self.objetivo, self.posicion)
         )
@@ -50,29 +59,36 @@ class Camara:
             self.frente
         )
 
-        # Calcula la distancia focal en píxeles
+        # Distancia focal en píxeles
+        # en universo 3D (Aplicar Perspectiva: cuánto "encoger" según distancia)
+        # aplica distancia focal por semejanza de triángulos
         self.focal = (
             (self.screen_height / 2)
             / math.tan(math.radians(self.fov_y) / 2)
         )
 
-        # Guarda la matriz de vista para proyectar los puntos más rápido
+        # Matriz de vista 3x3 precalculada: sus filas son derecha, arriba y frente.
+        # Así un solo producto V @ relativo da (x_cam, y_cam, profundidad)
+        # en lugar de tres productos punto separados.
         self.vista = np.vstack([self.derecha, self.arriba_camara, self.frente])
         self.posicion_col = self.posicion.reshape(3, 1)
 
     def proyectar(self, punto):
-        # Calcula la posición del punto respecto a la cámara
+        # relativo -> saber si el objeto está atrás de cámara o en el área visual
+        # vector que apunta directo desde cam -> punto/obj. Pos punto respecto a cámara
         relativo = restar(punto, self.posicion)
 
+        # Con respecto a cámara, en un espacio 2D (pixel) donde cae
         x_cam = producto_punto(relativo, self.derecha)
         y_cam = producto_punto(relativo, self.arriba_camara)
         profundidad = producto_punto(relativo, self.frente)
 
-        # Ignora los puntos fuera del rango de visión
+        # No proyectar puntos fuera de profundidad válida
         if profundidad <= self.znear or profundidad > self.zfar:
             return None
 
-        # Convierte las coordenadas 3D a píxeles
+        # Convertir al sistema de pixeles
+        # Hace la proyección FINAL, con el (0,0) como centro de la pantalla, +y abajo
         x_pantalla = (
             self.screen_width / 2
             + x_cam * self.focal / profundidad
@@ -84,15 +100,22 @@ class Camara:
 
         return (x_pantalla, y_pantalla)
 
-    # Proyecta varios puntos al mismo tiempo
+    """
+        Misma matemática que proyectar(), pero para muchos puntos a la vez (que corra más rápido)
+        puntos: arreglo 3 x N (columnas = puntos)
+        Devuelve (xs, ys, validos, profundidad): arreglos de largo N.
+          validos[i] es False si el punto i está detrás de la cámara o fuera de perspectiva.
+          profundidad[i] se usa para ordenar caras (algoritmo del pintor).
+        Sirve para no llamar a proyectar() muchas veces por frame
+    """
     def proyectar_lote(self, puntos):
-        # Calcula las coordenadas de todos los puntos usando la matriz de vista
+        # Un solo producto matricial: filas = x_cam, y_cam, profundidad
         x_cam, y_cam, profundidad = self.vista @ (puntos - self.posicion_col)
 
-        # Identifica los puntos que están dentro del rango de visión
+        # validos -> es False si el punto i está detrás de la cámara o fuera de perspectiva.
         validos = (profundidad > self.znear) & (profundidad <= self.zfar)
 
-        # Evita dividir entre cero en los puntos inválidos
+        # Evitar dividir entre cero en los puntos inválidos
         escala = self.focal / np.where(validos, profundidad, 1.0)
 
         xs = self.screen_width / 2 + x_cam * escala
